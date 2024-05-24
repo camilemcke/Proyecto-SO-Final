@@ -1,0 +1,106 @@
+#include <iostream>
+#include <fstream>
+#include <vector>
+#include <thread>
+#include <chrono>
+#include <mutex>
+#include <cctype>
+#include <windows.h>
+
+using namespace std;
+
+mutex console_mutex;
+HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+
+void process_content(const string& content, const string& identifier) 
+{
+    int numLines = 0, numChars = 0, numWords = 0;
+    double totalWordLength = 0;
+    string word;
+
+    for (char c : content) 
+    {
+        numChars++;
+        if (c == '\n') numLines++;
+        if (isalnum(static_cast<unsigned char>(c))) 
+        {
+            word += c;
+        }
+        else if (!word.empty()) 
+        {
+            numWords++;
+            totalWordLength += word.length();
+            word.clear();
+        }
+    }
+    if (!word.empty()) 
+    {
+        numWords++;
+        totalWordLength += word.length();
+    }
+
+    double averageWordLength = numWords ? totalWordLength / numWords : 0;
+
+    lock_guard<mutex> lock(console_mutex);
+    SetConsoleTextAttribute(hConsole, hash<thread::id>{}(this_thread::get_id()) % 14 + 1);
+    cout << "Resultados de " << identifier << ":\n";
+    cout << "Número total de líneas: " << numLines << "\n";
+    cout << "Número total de caracteres: " << numChars << "\n";
+    cout << "Número total de palabras: " << numWords << "\n";
+    cout << "Longitud promedio de palabra: " << averageWordLength << " caracteres\n\n";
+    SetConsoleTextAttribute(hConsole, 7);
+}
+
+void read_and_process_file(const string& file_name, const string& identifier) 
+{
+    string content, line;
+    ifstream file(file_name);
+    if (file.is_open()) 
+    {
+        while (getline(file, line)) 
+        {
+            content += line + "\n";
+        }
+        file.close();
+    }
+    process_content(content, identifier);
+}
+
+int main() {
+    setlocale(LC_ALL, "");
+    vector<string> files = 
+    { 
+        "NotasPrimerParcial.txt", "Capstone Project for Grupo Ferdan, S.A. Manual.txt", "PrimeraEntregaProyecto.txt" 
+    };
+
+    cout << "\n--- Ejecución Secuencial ---\n";
+    auto start_time_seq = chrono::high_resolution_clock::now();
+    for (const auto& file : files) 
+    {
+        read_and_process_file(file, file);  
+    }
+    auto end_time_seq = chrono::high_resolution_clock::now();
+    auto diff_seq = chrono::duration<double>(end_time_seq - start_time_seq).count();
+
+    cout << "\n--- Ejecución Concurrente ---\n";
+    vector<thread> threads;
+    auto start_time_con = chrono::high_resolution_clock::now();
+    for (const auto& file : files) 
+    {
+        threads.emplace_back([&, file] 
+            {
+            read_and_process_file(file, "Hilo " + to_string(hash<thread::id>{}(this_thread::get_id())));
+            });
+    }
+    for (auto& th : threads) 
+    {
+        th.join();
+    }
+    auto end_time_con = chrono::high_resolution_clock::now();
+    auto diff_con = chrono::duration<double>(end_time_con - start_time_con).count();
+
+    cout << "\nTiempo total de lectura secuencial: " << diff_seq << " segundos." << endl;
+    cout << "Tiempo total de lectura concurrente: " << diff_con << " segundos." << endl;
+
+    return 0;
+}
